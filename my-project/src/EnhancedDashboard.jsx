@@ -286,14 +286,38 @@ const EnhancedDashboard = () => {
         <div className="bg-white rounded-lg shadow-md p-6">
           <h3 className="text-lg font-semibold text-gray-700 mb-4">Key Insights</h3>
           <div className="space-y-2 text-sm">
-            <div className="p-2 bg-blue-50 rounded">
-              <strong>Thermal:</strong> Temp varies 39-43°C with power changes
+            <div className="p-2 bg-blue-50 rounded flex items-center justify-between">
+              <span><strong>Thermal:</strong> Temp varies 39-43°C with power changes</span>
+              <div className="relative">
+                <div className="w-4 h-4 bg-blue-500 text-white rounded-full flex items-center justify-center text-xs cursor-help group">
+                  i
+                  <div className="absolute right-0 top-6 w-64 p-2 bg-gray-800 text-white text-xs rounded opacity-0 group-hover:opacity-100 transition-opacity z-50 pointer-events-none">
+                    Temperature correlates with power consumption. Higher power loads generate more heat. Normal range indicates good cooling system performance.
+                  </div>
+                </div>
+              </div>
             </div>
-            <div className="p-2 bg-yellow-50 rounded">
-              <strong>Balance:</strong> Phases well balanced (±5%)
+            <div className="p-2 bg-yellow-50 rounded flex items-center justify-between">
+              <span><strong>Balance:</strong> Phases well balanced (±5%)</span>
+              <div className="relative">
+                <div className="w-4 h-4 bg-yellow-500 text-white rounded-full flex items-center justify-center text-xs cursor-help group">
+                  i
+                  <div className="absolute right-0 top-6 w-64 p-2 bg-gray-800 text-white text-xs rounded opacity-0 group-hover:opacity-100 transition-opacity z-50 pointer-events-none">
+                    Three-phase electrical balance. All phases (R,Y,B) carry similar current/voltage loads within 5%. Good balance prevents overheating and ensures efficient operation.
+                  </div>
+                </div>
+              </div>
             </div>
-            <div className="p-2 bg-green-50 rounded">
-              <strong>Efficiency:</strong> PF: 0.89-0.98 (Good)
+            <div className="p-2 bg-green-50 rounded flex items-center justify-between">
+              <span><strong>Efficiency:</strong> PF: 0.89-0.98 (Good)</span>
+              <div className="relative">
+                <div className="w-4 h-4 bg-green-500 text-white rounded-full flex items-center justify-center text-xs cursor-help group">
+                  i
+                  <div className="absolute right-0 top-6 w-64 p-2 bg-gray-800 text-white text-xs rounded opacity-0 group-hover:opacity-100 transition-opacity z-50 pointer-events-none">
+                    Power Factor measures electrical efficiency. Values 0.89-0.98 indicate good power quality with minimal reactive power waste, reducing energy costs.
+                  </div>
+                </div>
+              </div>
             </div>
           </div>
         </div>

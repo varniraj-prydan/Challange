@@ -117,12 +117,6 @@ const RechartsModal = ({ data, title, color = "#3B82F6", unit = "", onClose, tim
               </LineChart>
             </ResponsiveContainer>
           </div>
-          
-          <div className="mt-4 text-sm text-gray-600 bg-blue-50 p-3 rounded">
-            <strong>How to use:</strong> Use the brush control at the bottom to zoom and navigate through the timeline. 
-            Drag the brush handles to zoom into specific time periods. 
-            Hover over the line to see exact values and timestamps. Data is sampled for performance.
-          </div>
         </div>
       </div>
     </div>
