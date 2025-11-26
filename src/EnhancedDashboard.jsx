@@ -9,6 +9,8 @@ const EnhancedDashboard = () => {
   const [isPlaying, setIsPlaying] = useState(false);
   const [playSpeed, setPlaySpeed] = useState(1000);
   const [modalChart, setModalChart] = useState(null);
+  const [lastDataTime, setLastDataTime] = useState(Date.now());
+  const [showGapAlert, setShowGapAlert] = useState(false);
 
   useEffect(() => {
     loadJsonlData();
@@ -36,8 +38,35 @@ const EnhancedDashboard = () => {
       const windowSize = Math.min(60, currentIndex + 1); // Show last 60 seconds
       const startIndex = Math.max(0, currentIndex - windowSize + 1);
       setDisplayData(allData.slice(startIndex, currentIndex + 1));
+      setLastDataTime(Date.now());
     }
   }, [currentIndex, allData]);
+
+  useEffect(() => {
+    const gapInterval = setInterval(() => {
+      const timeSinceLastData = Date.now() - lastDataTime;
+      setShowGapAlert(timeSinceLastData > 10000); // 10 seconds
+    }, 1000);
+    return () => clearInterval(gapInterval);
+  }, [lastDataTime]);
+
+  const exportCSV = () => {
+    if (!displayData.length) return;
+    
+    const headers = ['timestamp', 'machine_id', 'state', 'mode', 'status', 'vr', 'vy', 'vb', 'ir', 'iy', 'ib', 'kw', 'kwh_total', 'pf', 'count_total', 'temp_c', 'alarm_code'];
+    const csvContent = [
+      headers.join(','),
+      ...displayData.map(row => headers.map(header => row[header === 'timestamp' ? 'ts' : header] || '').join(','))
+    ].join('\n');
+    
+    const blob = new Blob([csvContent], { type: 'text/csv' });
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement('a');
+    a.href = url;
+    a.download = `machine_data_${new Date().toISOString().slice(0, 19)}.csv`;
+    a.click();
+    URL.revokeObjectURL(url);
+  };
 
   const loadJsonlData = async () => {
     try {
@@ -67,20 +96,49 @@ const EnhancedDashboard = () => {
   const calculateKPIs = () => {
     if (!displayData.length) return {};
     
+    const windowMinutes = displayData.length / 60; // 1Hz data
+    
+    // Uptime percentages
+    const runCount = displayData.filter(d => d.state === 'RUN').length;
+    const idleCount = displayData.filter(d => d.state === 'IDLE').length;
+    const offCount = displayData.filter(d => d.state === 'OFF').length;
+    const uptimePercent = (runCount / displayData.length * 100).toFixed(1);
+    const idlePercent = (idleCount / displayData.length * 100).toFixed(1);
+    const offPercent = (offCount / displayData.length * 100).toFixed(1);
+    
+    // Average kW
     const avgPower = displayData.reduce((sum, d) => sum + d.kw, 0) / displayData.length;
-    const maxTemp = Math.max(...displayData.map(d => d.temp_c));
-    const minTemp = Math.min(...displayData.map(d => d.temp_c));
+    
+    // Energy (kWh) - use energy register
     const energyDelta = displayData.length > 1 ? 
-      displayData[displayData.length - 1].kwh_total - displayData[0].kwh_total : 0;
+      Math.max(...displayData.map(d => d.kwh_total)) - Math.min(...displayData.map(d => d.kwh_total)) : 0;
+    
+    // PF average (RUN + IDLE only)
+    const runIdleData = displayData.filter(d => d.state === 'RUN' || d.state === 'IDLE');
+    const avgPF = runIdleData.length > 0 ? 
+      runIdleData.reduce((sum, d) => sum + d.pf, 0) / runIdleData.length : 0;
+    
+    // Throughput (units/min)
     const countDelta = displayData.length > 1 ?
       displayData[displayData.length - 1].count_total - displayData[0].count_total : 0;
+    const throughput = windowMinutes > 0 ? countDelta / windowMinutes : 0;
+    
+    // Phase imbalance %
+    const currents = [currentData.ir, currentData.iy, currentData.ib];
+    const maxCurrent = Math.max(...currents);
+    const minCurrent = Math.min(...currents);
+    const avgCurrent = currents.reduce((sum, i) => sum + i, 0) / 3;
+    const phaseImbalance = avgCurrent > 0 ? ((maxCurrent - minCurrent) / avgCurrent * 100) : 0;
     
     return {
+      uptimePercent,
+      idlePercent, 
+      offPercent,
       avgPower: avgPower.toFixed(2),
-      maxTemp: maxTemp.toFixed(1),
-      minTemp: minTemp.toFixed(1),
       energyDelta: energyDelta.toFixed(3),
-      countDelta
+      avgPF: avgPF.toFixed(3),
+      throughput: throughput.toFixed(1),
+      phaseImbalance: phaseImbalance.toFixed(1)
     };
   };
 
@@ -111,6 +169,17 @@ const EnhancedDashboard = () => {
             <span className={`px-3 py-1 rounded-full text-white text-sm ${getStatusColor(currentData.status)}`}>
               {currentData.status}
             </span>
+            {showGapAlert && (
+              <span className="px-3 py-1 rounded-full bg-red-500 text-white text-sm animate-pulse">
+                No data >10s
+              </span>
+            )}
+            <button
+              onClick={exportCSV}
+              className="px-3 py-1 bg-gray-500 hover:bg-gray-600 text-white text-sm rounded"
+            >
+              Export CSV
+            </button>
           </div>
         </div>
         
@@ -154,31 +223,41 @@ const EnhancedDashboard = () => {
       </div>
 
       {/* KPI Cards */}
-      <div className="grid grid-cols-1 md:grid-cols-4 gap-6 mb-6">
-        <div className="bg-white rounded-lg shadow-md p-6">
-          <h3 className="text-lg font-semibold text-gray-700 mb-2">Live Power</h3>
-          <p className="text-3xl font-bold text-blue-600">{currentData.kw} kW</p>
-          <p className="text-sm text-gray-500">Avg: {kpis.avgPower} kW</p>
+      <div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-6 gap-4 mb-6">
+        <div className="bg-white rounded-lg shadow-md p-4">
+          <h3 className="text-sm font-semibold text-gray-700 mb-1">Uptime %</h3>
+          <p className="text-2xl font-bold text-green-600">{kpis.uptimePercent}%</p>
+          <p className="text-xs text-gray-500">RUN state</p>
         </div>
         
-        <div className="bg-white rounded-lg shadow-md p-6">
-          <h3 className="text-lg font-semibold text-gray-700 mb-2">Energy Delta</h3>
-          <p className="text-3xl font-bold text-green-600">{kpis.energyDelta} kWh</p>
-          <p className="text-sm text-gray-500">Total: {currentData.kwh_total} kWh</p>
+        <div className="bg-white rounded-lg shadow-md p-4">
+          <h3 className="text-sm font-semibold text-gray-700 mb-1">Avg Power</h3>
+          <p className="text-2xl font-bold text-blue-600">{kpis.avgPower} kW</p>
+          <p className="text-xs text-gray-500">Window avg</p>
         </div>
         
-        <div className="bg-white rounded-lg shadow-md p-6">
-          <h3 className="text-lg font-semibold text-gray-700 mb-2">Units Produced</h3>
-          <p className="text-3xl font-bold text-purple-600">{currentData.count_total.toLocaleString()}</p>
-          <p className="text-sm text-gray-500">Δ: +{kpis.countDelta}</p>
+        <div className="bg-white rounded-lg shadow-md p-4">
+          <h3 className="text-sm font-semibold text-gray-700 mb-1">Energy</h3>
+          <p className="text-2xl font-bold text-purple-600">{kpis.energyDelta} kWh</p>
+          <p className="text-xs text-gray-500">Window delta</p>
         </div>
         
-        <div className="bg-white rounded-lg shadow-md p-6">
-          <h3 className="text-lg font-semibold text-gray-700 mb-2">Temperature</h3>
-          <p className={`text-3xl font-bold ${currentData.temp_c > 60 ? 'text-red-600' : currentData.temp_c > 45 ? 'text-yellow-600' : 'text-green-600'}`}>
-            {currentData.temp_c}°C
-          </p>
-          <p className="text-sm text-gray-500">Range: {kpis.minTemp}-{kpis.maxTemp}°C</p>
+        <div className="bg-white rounded-lg shadow-md p-4">
+          <h3 className="text-sm font-semibold text-gray-700 mb-1">Avg PF</h3>
+          <p className="text-2xl font-bold text-orange-600">{kpis.avgPF}</p>
+          <p className="text-xs text-gray-500">RUN+IDLE only</p>
+        </div>
+        
+        <div className="bg-white rounded-lg shadow-md p-4">
+          <h3 className="text-sm font-semibold text-gray-700 mb-1">Throughput</h3>
+          <p className="text-2xl font-bold text-indigo-600">{kpis.throughput}</p>
+          <p className="text-xs text-gray-500">units/min</p>
+        </div>
+        
+        <div className="bg-white rounded-lg shadow-md p-4">
+          <h3 className="text-sm font-semibold text-gray-700 mb-1">Phase Imbalance</h3>
+          <p className={`text-2xl font-bold ${parseFloat(kpis.phaseImbalance) > 15 ? 'text-red-600' : 'text-green-600'}`}>{kpis.phaseImbalance}%</p>
+          <p className="text-xs text-gray-500">Current phases</p>
         </div>
       </div>
 
@@ -284,37 +363,37 @@ const EnhancedDashboard = () => {
         </div>
 
         <div className="bg-white rounded-lg shadow-md p-6">
-          <h3 className="text-lg font-semibold text-gray-700 mb-4">Key Insights</h3>
+          <h3 className="text-lg font-semibold text-gray-700 mb-4">Auto-Insights</h3>
           <div className="space-y-2 text-sm">
             <div className="p-2 bg-blue-50 rounded flex items-center justify-between">
-              <span><strong>Thermal:</strong> Temp varies 39-43°C with power changes</span>
+              <span><strong>Peak 15-min Demand:</strong> {Math.max(...displayData.map(d => d.kw)).toFixed(2)} kW</span>
               <div className="relative">
                 <div className="w-4 h-4 bg-blue-500 text-white rounded-full flex items-center justify-center text-xs cursor-help group">
                   i
                   <div className="absolute right-0 top-6 w-64 p-2 bg-gray-800 text-white text-xs rounded opacity-0 group-hover:opacity-100 transition-opacity z-50 pointer-events-none">
-                    Temperature correlates with power consumption. Higher power loads generate more heat. Normal range indicates good cooling system performance.
+                    Maximum power demand in current window. Used for capacity planning and demand charge calculations.
                   </div>
                 </div>
               </div>
             </div>
             <div className="p-2 bg-yellow-50 rounded flex items-center justify-between">
-              <span><strong>Balance:</strong> Phases well balanced (±5%)</span>
+              <span><strong>Phase Imbalance:</strong> {parseFloat(kpis.phaseImbalance) > 15 ? 'HIGH' : 'NORMAL'} ({kpis.phaseImbalance}%)</span>
               <div className="relative">
                 <div className="w-4 h-4 bg-yellow-500 text-white rounded-full flex items-center justify-center text-xs cursor-help group">
                   i
                   <div className="absolute right-0 top-6 w-64 p-2 bg-gray-800 text-white text-xs rounded opacity-0 group-hover:opacity-100 transition-opacity z-50 pointer-events-none">
-                    Three-phase electrical balance. All phases (R,Y,B) carry similar current/voltage loads within 5%. Good balance prevents overheating and ensures efficient operation.
+                    Current imbalance greater than 15% for more than 2min indicates electrical issues. Can cause overheating and reduced motor life.
                   </div>
                 </div>
               </div>
             </div>
             <div className="p-2 bg-green-50 rounded flex items-center justify-between">
-              <span><strong>Efficiency:</strong> PF: 0.89-0.98 (Good)</span>
+              <span><strong>Power Quality:</strong> {parseFloat(kpis.avgPF) < 0.8 ? 'LOW PF DETECTED' : 'GOOD PF'}</span>
               <div className="relative">
                 <div className="w-4 h-4 bg-green-500 text-white rounded-full flex items-center justify-center text-xs cursor-help group">
                   i
                   <div className="absolute right-0 top-6 w-64 p-2 bg-gray-800 text-white text-xs rounded opacity-0 group-hover:opacity-100 transition-opacity z-50 pointer-events-none">
-                    Power Factor measures electrical efficiency. Values 0.89-0.98 indicate good power quality with minimal reactive power waste, reducing energy costs.
+                    Power Factor less than 0.8 for more than 5min indicates poor power quality. Causes higher energy costs and potential penalties.
                   </div>
                 </div>
               </div>
